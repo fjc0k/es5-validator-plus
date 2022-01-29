@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { extname } = require("path");
+const { extname, join, dirname } = require("path");
 const { readFileSync } = require("fs");
 
 const acorn = require("acorn");
@@ -9,6 +9,7 @@ const { codeFrameColumns } = require("@babel/code-frame");
 const beautify = require("js-beautify").js;
 const { isMinified } = require("is-minified-performant");
 const globby = require("globby");
+const posthtml = require("posthtml");
 
 const { fetch } = require("./fetch");
 
@@ -21,13 +22,24 @@ const silent = process.env.SILENT === "true";
 async function main() {
   sourceFiles = (
     await Promise.all(
-      sourceFiles.map(async (file) => {
-        return isRemoteFile(file)
-          ? [file]
-          : await globby(file, {
-              onlyFiles: true,
-            });
-      })
+      (
+        await Promise.all(
+          sourceFiles.map(async (file) => {
+            return isRemoteFile(file)
+              ? [file]
+              : await globby(file, {
+                  onlyFiles: true,
+                });
+          })
+        )
+      )
+        .flat()
+        .map(async (file) => {
+          if (isHtmlFile(file)) {
+            return await extractScriptsFromHtml(file);
+          }
+          return [file];
+        })
     )
   ).flat();
   printResult(await validate(sourceFiles));
@@ -202,4 +214,38 @@ async function fetchFileContent(filePath) {
  */
 function isCompressed(source) {
   return isMinified(source);
+}
+
+function isHtmlFile(file) {
+  return file.split("#")[0].split("?")[0].toLowerCase().endsWith(".html");
+}
+
+async function extractScriptsFromHtml(file) {
+  const html = isRemoteFile(file)
+    ? await fetch(file)
+    : readFileSync(file, { encoding: "utf-8" });
+  const scripts = new Set();
+  await posthtml()
+    .use((tree) => {
+      tree.match([{ tag: "script" }, { tag: "link" }], (node) => {
+        if (node.attrs) {
+          const url =
+            node.tag === "script" && node.attrs.src
+              ? node.attrs.src
+              : node.tag === "link" && node.attrs.href
+              ? node.attrs.href
+              : "";
+          if (url && url.split("?")[0].toLowerCase().endsWith(".js")) {
+            const absoluteUrl = isRemoteFile(url)
+              ? url
+              : isRemoteFile(file)
+              ? new URL(url, file).toString()
+              : join(dirname(file), url).replace(/\\/g, "/");
+            scripts.add(absoluteUrl);
+          }
+        }
+      });
+    })
+    .process(html);
+  return Array.from(scripts);
 }
