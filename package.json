@@ -36,8 +36,10 @@
     "acorn": "^7.3.1",
     "chalk": "^4.1.0",
     "debug": "^4.1.1",
+    "globby": "^11",
     "is-minified-performant": "^1.0.2",
-    "js-beautify": "^1.11.0"
+    "js-beautify": "^1.11.0",
+    "posthtml": "^0.16.5"
   },
   "devDependencies": {
     "git-commit-msg-linter": "^2.6.0"
